@@ -15,6 +15,13 @@ Para gerar o `RAG_AUTH_TOKEN`, rode no seu computador:
 python3 -c "import secrets; print(secrets.token_urlsafe(32))"
 ```
 
+## Painel administrativo
+
+Acesse `https://SEU_DOMINIO/admin` no navegador. Faça login com o valor de
+`RAG_AUTH_TOKEN`. Lá você pode arrastar PDFs pra enviar, acompanhar o
+progresso de processamento em tempo real e gerenciar (reprocessar/remover)
+os livros já indexados.
+
 ## Como enviar este código pro GitHub
 
 Dentro desta pasta:

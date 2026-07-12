@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RAG Books — Painel</title>
+<style>
+  :root {
+    --bg: #0d0d10;
+    --panel: #17171c;
+    --border: #2a2a32;
+    --text: #e8e8ec;
+    --muted: #8b8b96;
+    --accent: #4f7cff;
+    --green: #34c759;
+    --yellow: #f5a623;
+    --red: #ff5c5c;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+  }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 32px 20px 80px; }
+  h1 { font-size: 22px; font-weight: 600; margin: 0 0 4px; }
+  .sub { color: var(--muted); font-size: 14px; margin-bottom: 28px; }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 20px;
+  }
+  .card h2 { font-size: 13px; margin: 0 0 14px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+  #login-screen { max-width: 340px; margin: 100px auto; text-align: center; }
+  #login-screen input {
+    width: 100%; padding: 10px 12px; border-radius: 8px;
+    border: 1px solid var(--border); background: #0d0d10; color: var(--text);
+    margin: 14px 0; font-size: 14px;
+  }
+  button {
+    background: var(--accent); color: white; border: none; padding: 9px 16px;
+    border-radius: 8px; font-size: 13px; cursor: pointer; font-weight: 500;
+  }
+  button.secondary { background: transparent; border: 1px solid var(--border); color: var(--text); }
+  button.danger { background: transparent; border: 1px solid var(--red); color: var(--red); }
+  button:hover { opacity: .85; }
+  .dropzone {
+    border: 1.5px dashed var(--border); border-radius: 10px; padding: 28px;
+    text-align: center; color: var(--muted); font-size: 14px; cursor: pointer;
+    transition: border-color .15s, color .15s;
+  }
+  .dropzone.drag { border-color: var(--accent); color: var(--text); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+  tr:last-child td { border-bottom: none; }
+  .badge { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 600; cursor: default; }
+  .badge.done { background: rgba(52,199,89,.15); color: var(--green); }
+  .badge.processing { background: rgba(79,124,255,.15); color: var(--accent); }
+  .badge.pending { background: rgba(139,139,150,.15); color: var(--muted); }
+  .badge.error { background: rgba(255,92,92,.15); color: var(--red); }
+  .badge.skipped { background: rgba(245,166,35,.15); color: var(--yellow); }
+  .row-actions { display: flex; gap: 8px; justify-content: flex-end; }
+  .empty { color: var(--muted); font-size: 13px; padding: 4px 0 0; }
+  #error-msg { color: var(--red); font-size: 13px; min-height: 18px; }
+  .top-bar { display: flex; justify-content: space-between; align-items: flex-start; }
+</style>
+</head>
+<body>
+
+<div id="login-screen">
+  <h1>📚 RAG Books</h1>
+  <p class="sub">Painel de administração da base de livros</p>
+  <input id="token-input" type="password" placeholder="Token de acesso (RAG_AUTH_TOKEN)">
+  <button style="width:100%" onclick="login()">Entrar</button>
+  <p id="error-msg"></p>
+</div>
+
+<div id="dashboard" class="wrap" style="display:none">
+  <div class="top-bar">
+    <div>
+      <h1>📚 RAG Books</h1>
+      <p class="sub">Envie PDFs, acompanhe a ingestão e gerencie sua biblioteca.</p>
+    </div>
+    <button class="secondary" onclick="logout()">Sair</button>
+  </div>
+
+  <div class="card">
+    <h2>Enviar livros</h2>
+    <div class="dropzone" id="dropzone">
+      Arraste PDFs aqui, ou clique para selecionar
+      <input type="file" id="file-input" accept=".pdf" multiple style="display:none">
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Processamento</h2>
+    <table id="jobs-table">
+      <thead><tr><th>Arquivo</th><th>Status</th><th>Trechos</th><th>Atualizado</th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <p class="empty" id="jobs-empty" style="display:none">Nenhum processamento ainda.</p>
+  </div>
+
+  <div class="card">
+    <h2>Biblioteca</h2>
+    <table id="books-table">
+      <thead><tr><th>Livro</th><th>Trechos</th><th>Páginas</th><th></th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <p class="empty" id="books-empty" style="display:none">Nenhum livro indexado ainda.</p>
+  </div>
+</div>
+
+<script>
+let TOKEN = localStorage.getItem('rag_token') || '';
+
+function authHeaders(extra) {
+  return Object.assign({ 'Authorization': 'Bearer ' + TOKEN }, extra || {});
+}
+
+async function login() {
+  const input = document.getElementById('token-input');
+  TOKEN = input.value.trim();
+  const errEl = document.getElementById('error-msg');
+  errEl.textContent = '';
+  try {
+    const resp = await fetch('/admin/api/status', { headers: authHeaders() });
+    if (resp.status === 401) {
+      errEl.textContent = 'Token inválido.';
+      return;
+    }
+    localStorage.setItem('rag_token', TOKEN);
+    showDashboard();
+  } catch (e) {
+    errEl.textContent = 'Erro ao conectar: ' + e.message;
+  }
+}
+
+function logout() {
+  localStorage.removeItem('rag_token');
+  location.reload();
+}
+
+function showDashboard() {
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('dashboard').style.display = 'block';
+  refreshAll();
+  setInterval(refreshAll, 2000);
+}
+
+function statusLabel(s) {
+  const map = { done: 'concluído', processing: 'processando', pending: 'na fila', error: 'erro', skipped: 'já existia' };
+  return map[s] || s;
+}
+
+async function refreshJobs() {
+  const resp = await fetch('/admin/api/status', { headers: authHeaders() });
+  if (resp.status === 401) return logout();
+  const data = await resp.json();
+  const tbody = document.querySelector('#jobs-table tbody');
+  tbody.innerHTML = '';
+  document.getElementById('jobs-empty').style.display = data.jobs.length ? 'none' : 'block';
+  for (const job of data.jobs) {
+    const tr = document.createElement('tr');
+    const when = job.updated_at ? new Date(job.updated_at).toLocaleTimeString('pt-BR') : '';
+    const errTitle = job.error_message ? ` title="${job.error_message.replace(/"/g, '&quot;')}"` : '';
+    tr.innerHTML = `<td>${job.filename}</td>
+      <td><span class="badge ${job.status}"${errTitle}>${statusLabel(job.status)}</span></td>
+      <td>${job.total_chunks ?? 0}</td>
+      <td>${when}</td>`;
+    tbody.appendChild(tr);
+  }
+}
+
+async function refreshBooks() {
+  const resp = await fetch('/admin/api/books', { headers: authHeaders() });
+  if (resp.status === 401) return logout();
+  const data = await resp.json();
+  const tbody = document.querySelector('#books-table tbody');
+  tbody.innerHTML = '';
+  document.getElementById('books-empty').style.display = data.books.length ? 'none' : 'block';
+  for (const book of data.books) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${book.title}</td><td>${book.chunks}</td><td>${book.pages ?? '-'}</td><td class="row-actions"></td>`;
+    const actions = tr.querySelector('.row-actions');
+
+    const reprocessBtn = document.createElement('button');
+    reprocessBtn.className = 'secondary';
+    reprocessBtn.textContent = 'Reprocessar';
+    reprocessBtn.onclick = () => reprocess(book.title);
+    actions.appendChild(reprocessBtn);
+
+    const delBtn = document.createElement('button');
+    delBtn.className = 'danger';
+    delBtn.textContent = 'Remover';
+    delBtn.onclick = () => removeBook(book.title);
+    actions.appendChild(delBtn);
+
+    tbody.appendChild(tr);
+  }
+}
+
+function refreshAll() { refreshJobs(); refreshBooks(); }
+
+async function reprocess(title) {
+  const filename = title + '.pdf';
+  await fetch('/admin/api/reprocess', {
+    method: 'POST',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ filename })
+  });
+  refreshAll();
+}
+
+async function removeBook(title) {
+  if (!confirm(`Remover todos os trechos de "${title}" da base?`)) return;
+  await fetch('/admin/api/books/' + encodeURIComponent(title), {
+    method: 'DELETE',
+    headers: authHeaders()
+  });
+  refreshAll();
+}
+
+async function uploadFiles(fileList) {
+  if (!fileList.length) return;
+  const form = new FormData();
+  for (const f of fileList) form.append('files', f);
+  await fetch('/admin/api/upload', {
+    method: 'POST',
+    headers: authHeaders(),
+    body: form
+  });
+  refreshAll();
+}
+
+const dropzone = document.getElementById('dropzone');
+const fileInput = document.getElementById('file-input');
+dropzone.addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', (e) => uploadFiles(e.target.files));
+dropzone.addEventListener('dragover', (e) => { e.preventDefault(); dropzone.classList.add('drag'); });
+dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag'));
+dropzone.addEventListener('drop', (e) => {
+  e.preventDefault();
+  dropzone.classList.remove('drag');
+  uploadFiles(e.dataTransfer.files);
+});
+
+if (TOKEN) {
+  fetch('/admin/api/status', { headers: authHeaders() }).then(r => {
+    if (r.status === 200) showDashboard();
+  });
+}
+</script>
+</body>
+</html>

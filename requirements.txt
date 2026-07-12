@@ -4,3 +4,4 @@ mcp
 psycopg[binary]
 pypdf
 httpx
+python-multipart
