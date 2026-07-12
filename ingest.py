@@ -38,6 +38,12 @@ def embed(text: str) -> list[float]:
     return resp.json()[0]
 
 
+def clean_text(text: str) -> str:
+    """Remove bytes NUL e outros caracteres de controle que o Postgres
+    não aceita em campos de texto."""
+    return text.replace("\x00", "")
+
+
 def ingest_pdf(path: str, conn: psycopg.Connection) -> None:
     title = os.path.splitext(os.path.basename(path))[0]
     reader = PdfReader(path)
@@ -45,11 +51,12 @@ def ingest_pdf(path: str, conn: psycopg.Connection) -> None:
 
     with conn.cursor() as cur:
         for page_num, page in enumerate(reader.pages, start=1):
-            text = page.extract_text() or ""
+            text = clean_text(page.extract_text() or "")
             if not text.strip():
                 continue
 
             for chunk in chunk_text(text):
+                chunk = clean_text(chunk)
                 if len(chunk.strip()) < MIN_CHUNK_LENGTH:
                     continue
                 vector = embed(chunk)
@@ -76,8 +83,13 @@ def main() -> None:
 
     with psycopg.connect(DATABASE_URL) as conn:
         for filename in sorted(os.listdir(folder)):
-            if filename.lower().endswith(".pdf"):
+            if not filename.lower().endswith(".pdf"):
+                continue
+            try:
                 ingest_pdf(os.path.join(folder, filename), conn)
+            except Exception as exc:
+                conn.rollback()
+                print(f"ERRO ao ingerir {filename}: {exc}")
 
     print("Ingestão concluída.")
 
