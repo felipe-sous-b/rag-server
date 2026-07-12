@@ -9,6 +9,7 @@ import psycopg
 from mcp.server.fastmcp import FastMCP
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
+from starlette.routing import Route
 
 DATABASE_URL = os.environ["DATABASE_URL"]
 EMBEDDING_URL = os.environ["EMBEDDING_SERVICE_URL"]
@@ -71,11 +72,11 @@ class BearerAuthMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
+async def health(request):
+    return JSONResponse({"status": "ok"})
+
+
 # App ASGI exposto via SSE (transporte remoto do MCP)
 app = mcp.sse_app()
 app.add_middleware(BearerAuthMiddleware)
-
-
-@app.route("/health")
-async def health(request):
-    return JSONResponse({"status": "ok"})
+app.router.routes.append(Route("/health", health))
