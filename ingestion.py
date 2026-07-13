@@ -147,7 +147,61 @@ async def embed_async(client: httpx.AsyncClient, text: str) -> list[float]:
     raise last_error
 
 
-async def process_book_async(path: str, job_id: int, force: bool = False) -> None:
+async def hybrid_search(query: str, top_k: int = 12) -> list[tuple[str, int, str, float]]:
+    """Combina busca vetorial (semântica) com busca textual exata (full-text
+    search nativo do Postgres) usando Reciprocal Rank Fusion (RRF).
+
+    Resolve um ponto fraco confirmado da busca puramente vetorial: termos
+    técnicos exatos e nomes próprios (ex: "Dependency Rule", "Conway's law")
+    que o embedding sozinho às vezes não reconhece como relevantes, mesmo
+    quando o texto exato está no corpus. A busca textual pega esses casos
+    por correspondência literal de palavra, complementando o embedding."""
+    RRF_K = 60
+    CANDIDATE_POOL_SIZE = 30
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        query_vector = await embed_async(client, query)
+
+    async with await psycopg.AsyncConnection.connect(DATABASE_URL) as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                """
+                SELECT id, book_title, page_number, chunk_text
+                FROM book_chunks
+                ORDER BY embedding <=> %s::vector
+                LIMIT %s
+                """,
+                (query_vector, CANDIDATE_POOL_SIZE),
+            )
+            vector_rows = await cur.fetchall()
+
+            await cur.execute(
+                """
+                SELECT id, book_title, page_number, chunk_text
+                FROM book_chunks
+                WHERE search_vector @@ plainto_tsquery('simple', %s)
+                ORDER BY ts_rank(search_vector, plainto_tsquery('simple', %s)) DESC
+                LIMIT %s
+                """,
+                (query, query, CANDIDATE_POOL_SIZE),
+            )
+            text_rows = await cur.fetchall()
+
+    scores: dict[int, float] = {}
+    info: dict[int, tuple] = {}
+
+    for rank, row in enumerate(vector_rows, start=1):
+        row_id = row[0]
+        scores[row_id] = scores.get(row_id, 0.0) + 1.0 / (RRF_K + rank)
+        info[row_id] = row
+
+    for rank, row in enumerate(text_rows, start=1):
+        row_id = row[0]
+        scores[row_id] = scores.get(row_id, 0.0) + 1.0 / (RRF_K + rank)
+        info[row_id] = row
+
+    ranked_ids = sorted(scores, key=lambda rid: scores[rid], reverse=True)[:top_k]
+    return [(info[rid][1], info[rid][2], info[rid][3], scores[rid]) for rid in ranked_ids]
     """Processa um único PDF de forma assíncrona, atualizando seu progresso
     na tabela ingest_jobs em tempo real (usado pelo painel web)."""
     title = os.path.splitext(os.path.basename(path))[0]

@@ -15,6 +15,18 @@ CREATE TABLE IF NOT EXISTS book_chunks (
 CREATE INDEX IF NOT EXISTS book_chunks_embedding_idx
     ON book_chunks USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
 
+-- Adicionado para suportar busca híbrida (full-text + vetor), que resolve
+-- casos onde a busca puramente vetorial falha em achar termos técnicos
+-- exatos e nomes próprios (confirmado em testes: "Dependency Rule",
+-- "Conway's law"). A coluna é gerada automaticamente pelo Postgres a partir
+-- de chunk_text, sem precisar de mudança no código de ingestão.
+ALTER TABLE book_chunks
+    ADD COLUMN IF NOT EXISTS search_vector tsvector
+    GENERATED ALWAYS AS (to_tsvector('simple', chunk_text)) STORED;
+
+CREATE INDEX IF NOT EXISTS book_chunks_search_idx
+    ON book_chunks USING GIN (search_vector);
+
 -- Adicionado para suportar o painel administrativo web (rastreio de progresso).
 CREATE TABLE IF NOT EXISTS ingest_jobs (
     id SERIAL PRIMARY KEY,

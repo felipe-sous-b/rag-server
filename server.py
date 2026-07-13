@@ -17,7 +17,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 from starlette.responses import HTMLResponse, JSONResponse
 from starlette.routing import Route
 
-from ingestion import DATABASE_URL, EMBEDDING_URL, embed_async, process_book_async
+from ingestion import DATABASE_URL, EMBEDDING_URL, embed_async, hybrid_search, process_book_async
 
 AUTH_TOKEN = os.environ["RAG_AUTH_TOKEN"]
 BOOKS_DIR = os.environ.get("BOOKS_DIR", "/books")
@@ -35,34 +35,19 @@ async def search_books(query: str, top_k: int = 12) -> str:
     """Busca trechos relevantes na base de livros técnicos de engenharia e
     arquitetura de software (Clean Architecture, Design Patterns, DDIA,
     Accelerate, Clean Code, etc.). Use antes de decidir uma prática de
-    arquitetura, padrão de projeto ou técnica de implementação. Retorna
-    vários candidatos por chamada — a similaridade de embedding sozinha nem
-    sempre reflete relevância real, então avalie e cite apenas os trechos
-    que de fato respondem à pergunta, descartando os que só compartilham
-    vocabulário técnico sem responder ao que foi perguntado."""
-    async with httpx.AsyncClient(timeout=30) as client:
-        query_vector = await embed_async(client, query)
+    arquitetura, padrão de projeto ou técnica de implementação. Combina
+    busca semântica com busca textual exata, então tanto perguntas
+    conceituais quanto termos técnicos específicos (nomes de padrões, leis,
+    princípios) tendem a funcionar bem. Retorna vários candidatos por
+    chamada — avalie e cite apenas os que de fato respondem à pergunta."""
+    results = await hybrid_search(query, top_k=top_k)
 
-    async with await psycopg.AsyncConnection.connect(DATABASE_URL) as conn:
-        async with conn.cursor() as cur:
-            await cur.execute(
-                """
-                SELECT book_title, page_number, chunk_text,
-                       1 - (embedding <=> %s::vector) AS similarity
-                FROM book_chunks
-                ORDER BY embedding <=> %s::vector
-                LIMIT %s
-                """,
-                (query_vector, query_vector, top_k),
-            )
-            rows = await cur.fetchall()
-
-    if not rows:
+    if not results:
         return "Nenhum trecho relevante encontrado na base de livros."
 
     partes = []
-    for title, page, text, similarity in rows:
-        partes.append(f"[{title}, p.{page}] (similaridade: {similarity:.2f})\n{text}")
+    for title, page, text, score in results:
+        partes.append(f"[{title}, p.{page}] (score: {score:.4f})\n{text}")
 
     return "\n\n---\n\n".join(partes)
 
