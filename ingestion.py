@@ -10,6 +10,8 @@ import time
 
 import httpx
 import psycopg
+import pytesseract
+from pdf2image import convert_from_path
 from pypdf import PdfReader
 
 DATABASE_URL = os.environ["DATABASE_URL"]
@@ -20,6 +22,27 @@ CHUNK_OVERLAP = 150
 MIN_CHUNK_LENGTH = 50
 MAX_RETRIES = 3
 RETRY_BACKOFF_SECONDS = 2
+
+# OCR: usado como fallback quando uma página não tem texto extraível
+# (comum em PDFs escaneados/fotografados). Ativa só nessas páginas, então
+# não deixa livros normais mais lentos.
+OCR_LANGUAGES = "por+eng"
+OCR_MIN_TEXT_LENGTH = 20
+OCR_DPI = 200
+
+
+def ocr_page(pdf_path: str, page_number: int) -> str:
+    """Renderiza uma página do PDF como imagem (via Poppler, igual um leitor
+    de PDF real faria) e roda OCR nela com o Tesseract."""
+    try:
+        images = convert_from_path(
+            pdf_path, first_page=page_number, last_page=page_number, dpi=OCR_DPI
+        )
+        if not images:
+            return ""
+        return pytesseract.image_to_string(images[0], lang=OCR_LANGUAGES)
+    except Exception:
+        return ""
 
 
 def clean_text(text: str) -> str:
@@ -120,7 +143,12 @@ async def process_book_async(path: str, job_id: int, force: bool = False) -> Non
                 try:
                     text = clean_text(page.extract_text() or "")
                 except Exception:
-                    continue
+                    text = ""
+
+                if len(text.strip()) < OCR_MIN_TEXT_LENGTH:
+                    ocr_text = await asyncio.to_thread(ocr_page, path, page_num)
+                    text = clean_text(ocr_text)
+
                 if not text.strip():
                     continue
 

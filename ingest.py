@@ -16,7 +16,15 @@ import sys
 import psycopg
 from pypdf import PdfReader
 
-from ingestion import DATABASE_URL, MIN_CHUNK_LENGTH, chunk_text, clean_text, embed_sync
+from ingestion import (
+    DATABASE_URL,
+    MIN_CHUNK_LENGTH,
+    OCR_MIN_TEXT_LENGTH,
+    chunk_text,
+    clean_text,
+    embed_sync,
+    ocr_page,
+)
 
 
 def create_job(conn: psycopg.Connection, filename: str, title: str) -> int:
@@ -74,7 +82,11 @@ def ingest_pdf(path: str, conn: psycopg.Connection, force: bool = False) -> None
             try:
                 text = clean_text(page.extract_text() or "")
             except Exception:
-                continue
+                text = ""
+
+            if len(text.strip()) < OCR_MIN_TEXT_LENGTH:
+                text = clean_text(ocr_page(path, page_num))
+
             if not text.strip():
                 continue
 
