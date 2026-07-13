@@ -8,12 +8,12 @@ Servidor MCP remoto + painel administrativo web.
 import asyncio
 import os
 import pathlib
+import urllib.parse
 
 import httpx
 import psycopg
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
-from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import HTMLResponse, JSONResponse
 from starlette.routing import Route
 
@@ -63,24 +63,39 @@ async def search_books(query: str, top_k: int = 5) -> str:
     return "\n\n---\n\n".join(partes)
 
 
-class BearerAuthMiddleware(BaseHTTPMiddleware):
-    """Exige `Authorization: Bearer <token>` em toda requisição, exceto no
-    endpoint de saúde e na página HTML do painel (que pede o token via login
-    no navegador e o usa nas próprias chamadas de API)."""
+class BearerAuthMiddleware:
+    """Exige `Authorization: Bearer <token>` (ou `?token=` na URL) em toda
+    requisição, exceto no endpoint de saúde, na página do painel e no
+    endpoint /messages (protegido pelo session_id, gerado só depois que o
+    /sse inicial já validou o token).
+
+    Implementado como middleware ASGI puro (não BaseHTTPMiddleware) porque
+    o BaseHTTPMiddleware do Starlette tem um bug conhecido com respostas de
+    streaming de longa duração como SSE."""
 
     PUBLIC_PATHS = {"/health", "/admin"}
 
-    async def dispatch(self, request, call_next):
-        if request.url.path in self.PUBLIC_PATHS or request.url.path.startswith("/messages"):
-            return await call_next(request)
+    def __init__(self, app):
+        self.app = app
 
-        auth_header = request.headers.get("authorization", "")
-        query_token = request.query_params.get("token", "")
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+
+        path = scope["path"]
+        if path in self.PUBLIC_PATHS or path.startswith("/messages"):
+            return await self.app(scope, receive, send)
+
+        headers = dict(scope["headers"])
+        auth_header = headers.get(b"authorization", b"").decode()
+        query_params = urllib.parse.parse_qs(scope.get("query_string", b"").decode())
+        query_token = query_params.get("token", [""])[0]
 
         if auth_header == f"Bearer {AUTH_TOKEN}" or query_token == AUTH_TOKEN:
-            return await call_next(request)
+            return await self.app(scope, receive, send)
 
-        return JSONResponse({"error": "unauthorized"}, status_code=401)
+        response = JSONResponse({"error": "unauthorized"}, status_code=401)
+        return await response(scope, receive, send)
 
 
 async def health(request):
