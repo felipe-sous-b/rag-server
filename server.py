@@ -71,7 +71,7 @@ class BearerAuthMiddleware(BaseHTTPMiddleware):
     PUBLIC_PATHS = {"/health", "/admin"}
 
     async def dispatch(self, request, call_next):
-        if request.url.path in self.PUBLIC_PATHS:
+        if request.url.path in self.PUBLIC_PATHS or request.url.path.startswith("/messages"):
             return await call_next(request)
 
         auth_header = request.headers.get("authorization", "")
