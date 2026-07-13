@@ -38,8 +38,18 @@ async def search_books(query: str, top_k: int = 12) -> str:
     arquitetura, padrão de projeto ou técnica de implementação. Combina
     busca semântica com busca textual exata, então tanto perguntas
     conceituais quanto termos técnicos específicos (nomes de padrões, leis,
-    princípios) tendem a funcionar bem. Retorna vários candidatos por
-    chamada — avalie e cite apenas os que de fato respondem à pergunta."""
+    princípios) tendem a funcionar bem.
+
+    IMPORTANTE — corpus bilíngue (PT/EN): vários livros estão em inglês.
+    Se a busca em português não trouxer o livro esperado (comum com nomes
+    próprios e termos técnicos consagrados em inglês, como "Dependency
+    Rule", "Conway's law", "Single Responsibility Principle"), chame esta
+    ferramenta de novo com a mesma pergunta traduzida pro inglês antes de
+    concluir que o conteúdo não existe na base — combine os resultados das
+    duas chamadas na sua resposta.
+
+    Retorna vários candidatos por chamada — avalie e cite apenas os que de
+    fato respondem à pergunta."""
     results = await hybrid_search(query, top_k=top_k)
 
     if not results:
