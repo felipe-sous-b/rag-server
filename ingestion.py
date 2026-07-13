@@ -202,6 +202,9 @@ async def hybrid_search(query: str, top_k: int = 12) -> list[tuple[str, int, str
 
     ranked_ids = sorted(scores, key=lambda rid: scores[rid], reverse=True)[:top_k]
     return [(info[rid][1], info[rid][2], info[rid][3], scores[rid]) for rid in ranked_ids]
+
+
+async def process_book_async(path: str, job_id: int, force: bool = False) -> None:
     """Processa um único PDF de forma assíncrona, atualizando seu progresso
     na tabela ingest_jobs em tempo real (usado pelo painel web)."""
     title = os.path.splitext(os.path.basename(path))[0]
