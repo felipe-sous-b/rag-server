@@ -70,10 +70,12 @@ class BearerAuthMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         auth_header = request.headers.get("authorization", "")
-        if auth_header != f"Bearer {AUTH_TOKEN}":
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        query_token = request.query_params.get("token", "")
 
-        return await call_next(request)
+        if auth_header == f"Bearer {AUTH_TOKEN}" or query_token == AUTH_TOKEN:
+            return await call_next(request)
+
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
 
 
 async def health(request):
