@@ -6,6 +6,7 @@ retry automático em falhas de rede e checagem de duplicidade.
 """
 import asyncio
 import os
+import re
 import time
 
 import httpx
@@ -17,11 +18,13 @@ from pypdf import PdfReader
 DATABASE_URL = os.environ["DATABASE_URL"]
 EMBEDDING_URL = os.environ["EMBEDDING_SERVICE_URL"]
 
-CHUNK_SIZE = 1000
-CHUNK_OVERLAP = 150
+CHUNK_SIZE = 1500
+OVERLAP_SENTENCES = 2
 MIN_CHUNK_LENGTH = 50
 MAX_RETRIES = 3
 RETRY_BACKOFF_SECONDS = 2
+
+SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
 
 # OCR: usado como fallback quando uma página não tem texto extraível
 # (comum em PDFs escaneados/fotografados). Ativa só nessas páginas, então
@@ -50,14 +53,59 @@ def clean_text(text: str) -> str:
     return text.replace("\x00", "")
 
 
-def chunk_text(text: str, size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP) -> list[str]:
-    """Quebra o texto em pedaços de tamanho fixo, com sobreposição entre eles."""
+def _split_sentences(text: str) -> list[str]:
+    """Quebra o texto em frases, tratando quebras de linha soltas (comuns em
+    PDFs, onde uma frase é 'quebrada' visualmente por causa do layout da
+    página) como espaço, mas preservando parágrafos duplos."""
+    text = re.sub(r"\n{2,}", "\n\n", text)
+    sentences = []
+    for paragraph in text.split("\n\n"):
+        paragraph = paragraph.replace("\n", " ").strip()
+        if not paragraph:
+            continue
+        for piece in SENTENCE_SPLIT_RE.split(paragraph):
+            piece = piece.strip()
+            if piece:
+                sentences.append(piece)
+    return sentences
+
+
+def chunk_text(text: str, size: int = CHUNK_SIZE, overlap_sentences: int = OVERLAP_SENTENCES) -> list[str]:
+    """Quebra o texto em pedaços respeitando limites de frase — nunca corta
+    uma frase no meio. Empacota frases até chegar perto do tamanho alvo, com
+    sobreposição de frases entre pedaços consecutivos para manter contexto."""
+    sentences = _split_sentences(text)
+    if not sentences:
+        return []
+
     chunks = []
-    start = 0
-    while start < len(text):
-        end = start + size
-        chunks.append(text[start:end])
-        start += size - overlap
+    current: list[str] = []
+    current_len = 0
+
+    for sentence in sentences:
+        if len(sentence) > size * 2:
+            # Frase absurdamente longa (raro; comum em texto de OCR sem
+            # pontuação clara) — fecha o chunk atual e corta essa frase
+            # sozinha, sem tentar preservar mais nada nela.
+            if current:
+                chunks.append(" ".join(current))
+                current = []
+                current_len = 0
+            for i in range(0, len(sentence), size):
+                chunks.append(sentence[i : i + size])
+            continue
+
+        if current_len + len(sentence) > size and current:
+            chunks.append(" ".join(current))
+            current = current[-overlap_sentences:]
+            current_len = sum(len(s) for s in current)
+
+        current.append(sentence)
+        current_len += len(sentence)
+
+    if current:
+        chunks.append(" ".join(current))
+
     return chunks
 
 

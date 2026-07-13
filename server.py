@@ -31,11 +31,15 @@ mcp = FastMCP(
 
 
 @mcp.tool()
-async def search_books(query: str, top_k: int = 5) -> str:
+async def search_books(query: str, top_k: int = 12) -> str:
     """Busca trechos relevantes na base de livros técnicos de engenharia e
     arquitetura de software (Clean Architecture, Design Patterns, DDIA,
     Accelerate, Clean Code, etc.). Use antes de decidir uma prática de
-    arquitetura, padrão de projeto ou técnica de implementação."""
+    arquitetura, padrão de projeto ou técnica de implementação. Retorna
+    vários candidatos por chamada — a similaridade de embedding sozinha nem
+    sempre reflete relevância real, então avalie e cite apenas os trechos
+    que de fato respondem à pergunta, descartando os que só compartilham
+    vocabulário técnico sem responder ao que foi perguntado."""
     async with httpx.AsyncClient(timeout=30) as client:
         query_vector = await embed_async(client, query)
 
