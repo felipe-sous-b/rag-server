@@ -12,6 +12,7 @@ import pathlib
 import httpx
 import psycopg
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import HTMLResponse, JSONResponse
 from starlette.routing import Route
@@ -22,7 +23,11 @@ AUTH_TOKEN = os.environ["RAG_AUTH_TOKEN"]
 BOOKS_DIR = os.environ.get("BOOKS_DIR", "/books")
 ADMIN_HTML_PATH = pathlib.Path(__file__).parent / "admin.html"
 
-mcp = FastMCP("book-rag")
+mcp = FastMCP(
+    "book-rag",
+    host="0.0.0.0",
+    transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
+)
 
 
 @mcp.tool()
